@@ -16,6 +16,9 @@
 
 <script src="{{ asset('js/app.js', true) }}"></script>
 
+<link rel="stylesheet" type="text/css" href="{{ asset('css/locationmap.css', true) }}"/>
+<script src="{{ asset('js/locationmap.js', true) }}" defer></script>
+
 @if ((ThemeModule::ready()) && (ThemeModule::data()->script))
 <script src="{{ ThemeModule::data()->script }}"></script>
 @endif

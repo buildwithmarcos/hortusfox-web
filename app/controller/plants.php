@@ -166,6 +166,152 @@ class PlantsController extends BaseController {
 	}
 
 	/**
+	 * Handles URL: /plants/location/{id}/map
+	 * 
+	 * @param Asatru\Controller\ControllerArg $request
+	 * @return Asatru\View\JsonHandler
+	 */
+	public function get_location_map($request)
+	{
+		try {
+			$location = $request->arg('id');
+
+			return json([
+				'code' => 200,
+				'map' => $this->location_map_response(LocationsModel::getMap($location)),
+				'plants' => $this->location_map_plants($location),
+				'labels' => [
+					'title' => __('app.location_map'),
+					'edit' => __('app.map_edit'),
+					'create' => __('app.map_create'),
+					'empty' => __('app.map_empty'),
+					'save' => __('app.save'),
+					'cancel' => __('app.cancel'),
+					'remove' => __('app.remove'),
+					'add_area' => __('app.map_add_area'),
+					'type_bed' => __('app.map_type_bed'),
+					'type_lawn' => __('app.map_type_lawn'),
+					'type_path' => __('app.map_type_path'),
+					'type_water' => __('app.map_type_water'),
+					'type_structure' => __('app.map_type_structure'),
+					'label' => __('app.map_label'),
+					'round' => __('app.map_round'),
+					'to_back' => __('app.map_to_back'),
+					'format' => __('app.map_format'),
+					'format_landscape' => __('app.map_format_landscape'),
+					'format_square' => __('app.map_format_square'),
+					'format_portrait' => __('app.map_format_portrait'),
+					'background' => __('app.map_background'),
+					'background_remove' => __('app.map_background_remove'),
+					'unplaced' => __('app.map_unplaced'),
+					'unplaced_hint' => __('app.map_unplaced_hint'),
+					'unplaced_count' => __('app.map_unplaced_count'),
+					'remove_pin' => __('app.map_remove_pin'),
+					'edit_hint' => __('app.map_edit_hint'),
+					'unsaved' => __('app.map_unsaved'),
+					'failed' => __('app.map_failed')
+				]
+			]);
+		} catch (\Exception $e) {
+			return json([
+				'code' => 500,
+				'msg' => $e->getMessage()
+			]);
+		}
+	}
+
+	/**
+	 * Handles URL: /plants/location/{id}/map/save
+	 * 
+	 * @param Asatru\Controller\ControllerArg $request
+	 * @return Asatru\View\JsonHandler
+	 */
+	public function save_location_map($request)
+	{
+		try {
+			$location = $request->arg('id');
+
+			$data = json_decode($request->params()->query('data', ''), true);
+			if (!is_array($data)) {
+				throw new \Exception('Invalid map data');
+			}
+
+			$map = LocationsModel::saveMap($location, $data);
+
+			return json([
+				'code' => 200,
+				'map' => $this->location_map_response($map)
+			]);
+		} catch (\Exception $e) {
+			return json([
+				'code' => 500,
+				'msg' => $e->getMessage()
+			]);
+		}
+	}
+
+	/**
+	 * Handles URL: /plants/location/{id}/map/background
+	 * 
+	 * @param Asatru\Controller\ControllerArg $request
+	 * @return Asatru\View\JsonHandler
+	 */
+	public function set_location_map_background($request)
+	{
+		try {
+			$location = $request->arg('id');
+
+			if ($request->params()->query('remove', false)) {
+				LocationsModel::clearMapBackground($location);
+			} else {
+				LocationsModel::setMapBackground($location);
+			}
+
+			return json([
+				'code' => 200,
+				'bg_url' => $this->location_map_response(LocationsModel::getMap($location))['bg_url']
+			]);
+		} catch (\Exception $e) {
+			return json([
+				'code' => 500,
+				'msg' => $e->getMessage()
+			]);
+		}
+	}
+
+	/**
+	 * @param array $map
+	 * @return array
+	 */
+	private function location_map_response($map)
+	{
+		$map['bg_url'] = ($map['bg'] !== null) ? asset('img/' . $map['bg']) : null;
+		unset($map['bg']);
+
+		return $map;
+	}
+
+	/**
+	 * @param $location
+	 * @return array
+	 */
+	private function location_map_plants($location)
+	{
+		$result = [];
+
+		foreach (PlantsModel::getAll($location) as $plant) {
+			$result[] = [
+				'id' => (int)$plant->get('id'),
+				'name' => $plant->get('name'),
+				'photo' => abs_photo($plant->get('photo')),
+				'url' => url('/plants/details/' . $plant->get('id'))
+			];
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Handles URL: /plants/details/{id}
 	 * 
 	 * @param Asatru\Controller\ControllerArg $request

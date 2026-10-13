@@ -80,7 +80,12 @@
 
 				<tr>
 					<td><strong>{{ __('app.location') }}</strong></td>
-					<td>{{ ((!$plant->get('history')) ? LocationsModel::getNameById($plant->get('location')) : app('history_name')) }} <span class="float-right"><a href="javascript:void(0);" onclick="window.vue.showEditCombo({{ $plant->get('id') }}, 'location', window.vue.comboLocation, {{ $plant->get('location') }});"><i class="fas fa-edit is-color-darker"></i></a></span></td>
+					<td>{{ ((!$plant->get('history')) ? LocationsModel::getNameById($plant->get('location')) : app('history_name')) }} <span class="float-right">
+						@if (!$plant->get('history'))
+						<a href="{{ url('/plants/location/' . $plant->get('location') . '?map_plant=' . $plant->get('id') . '#location-map') }}" title="{{ __('app.map_show_on_map') }}"><i class="fas fa-map-marked-alt is-color-darker"></i></a>&nbsp;
+						@endif
+						<a href="javascript:void(0);" onclick="window.vue.showEditCombo({{ $plant->get('id') }}, 'location', window.vue.comboLocation, {{ $plant->get('location') }});"><i class="fas fa-edit is-color-darker"></i></a>
+					</span></td>
 				</tr>
 
 				@if (plant_attr('last_watered'))

@@ -9,6 +9,14 @@ class UpgradeModule {
     /**
      * @return void
      */
+    private static function upgradeTo6dot4()
+    {
+        LocationsModel::raw('ALTER TABLE `@THIS` ADD COLUMN IF NOT EXISTS map_data MEDIUMTEXT NULL');
+    }
+
+    /**
+     * @return void
+     */
     private static function upgradeTo6dot3()
     {
     }

@@ -28,6 +28,8 @@
 
 @include('flashmsg.php')
 
+<div class="location-map" id="location-map" data-url="{{ url('/plants/location/' . $location . '/map') }}" data-highlight="{{ ((isset($_GET['map_plant'])) && (is_numeric($_GET['map_plant']))) ? intval($_GET['map_plant']) : '' }}"></div>
+
 <div class="sorting">
 	<div class="sorting-control sorting-mobile-only">
 		<a class="{{ ((((!isset($_GET['show'])) || ($_GET['show'] === 'cards')) && ((!isset($_COOKIE['list_show_style'])) || ($_COOKIE['list_show_style'] === 'cards'))) ? 'is-selected' : '') }}" href="{{ url('/plants/location/' . $location . '?show=cards' . url_query('sorting', '&') . url_query('direction', '&')) }}">

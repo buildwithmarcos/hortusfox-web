@@ -6,6 +6,15 @@
  * Manages plant locations
  */ 
 class LocationsModel extends \Asatru\Database\Model {
+    const MAP_WIDTH = 1000;
+    const MAP_MIN_HEIGHT = 300;
+    const MAP_MAX_HEIGHT = 2000;
+    const MAP_DEFAULT_HEIGHT = 600;
+    const MAP_MAX_SHAPES = 200;
+    const MAP_MAX_LABEL_LENGTH = 60;
+
+    public static $map_shape_types = ['bed', 'lawn', 'path', 'water', 'structure'];
+
     /**
      * @param $only_active
      * @return mixed
@@ -228,8 +237,211 @@ class LocationsModel extends \Asatru\Database\Model {
             PlantsModel::migratePlants($id, $target);
 
             static::clearPhoto($id);
+            static::clearMapBackground($id);
 
             static::raw('DELETE FROM `@THIS` WHERE id = ?', [$id]);
+        } catch (\Exception $e) {
+            throw $e;
+        }
+    }
+
+    /**
+     * @param $id
+     * @return array
+     * @throws \Exception
+     */
+    public static function getMap($id)
+    {
+        try {
+            $item = static::raw('SELECT * FROM `@THIS` WHERE id = ?', [$id])->first();
+            if (!$item) {
+                throw new \Exception('Item not found: ' . $id);
+            }
+
+            $data = null;
+            if (is_string($item->get('map_data'))) {
+                $data = json_decode($item->get('map_data'), true);
+            }
+
+            $map = static::sanitizeMap($id, $data);
+            $map['bg'] = ((is_array($data)) && (isset($data['bg'])) && (is_string($data['bg'])) && (preg_match('/^[a-f0-9]{32}\.(png|jpg|gif)$/', $data['bg']) === 1)) ? $data['bg'] : null;
+
+            return $map;
+        } catch (\Exception $e) {
+            throw $e;
+        }
+    }
+
+    /**
+     * @param $id
+     * @param $data
+     * @return array
+     * @throws \Exception
+     */
+    public static function saveMap($id, $data)
+    {
+        try {
+            $current = static::getMap($id);
+
+            $map = static::sanitizeMap($id, $data);
+            $map['bg'] = $current['bg'];
+
+            static::raw('UPDATE `@THIS` SET map_data = ? WHERE id = ?', [json_encode($map), $id]);
+
+            return $map;
+        } catch (\Exception $e) {
+            throw $e;
+        }
+    }
+
+    /**
+     * Reduce map data to known fields with valid values. Pins of plants
+     * that are not in the location anymore are dropped.
+     * 
+     * @param $id
+     * @param $data
+     * @return array
+     * @throws \Exception
+     */
+    private static function sanitizeMap($id, $data)
+    {
+        try {
+            $map = [
+                'w' => self::MAP_WIDTH,
+                'h' => self::MAP_DEFAULT_HEIGHT,
+                'bg' => null,
+                'shapes' => [],
+                'pins' => []
+            ];
+
+            if (!is_array($data)) {
+                return $map;
+            }
+
+            if ((isset($data['h'])) && (is_numeric($data['h']))) {
+                $map['h'] = (int)max(self::MAP_MIN_HEIGHT, min(self::MAP_MAX_HEIGHT, $data['h']));
+            }
+
+            $clamp = function($value, $max) {
+                return round(max(0, min($max, (is_numeric($value)) ? (float)$value : 0)), 1);
+            };
+
+            if ((isset($data['shapes'])) && (is_array($data['shapes']))) {
+                foreach (array_slice($data['shapes'], 0, self::MAP_MAX_SHAPES) as $shape) {
+                    if (!is_array($shape)) {
+                        continue;
+                    }
+
+                    $type = $shape['type'] ?? null;
+                    if (!in_array($type, static::$map_shape_types, true)) {
+                        $type = static::$map_shape_types[0];
+                    }
+
+                    $label = (isset($shape['label']) && is_string($shape['label'])) ? trim($shape['label']) : '';
+
+                    $width = max(10, $clamp($shape['w'] ?? 0, $map['w']));
+                    $height = max(10, $clamp($shape['h'] ?? 0, $map['h']));
+
+                    $map['shapes'][] = [
+                        'type' => $type,
+                        'round' => !empty($shape['round']),
+                        'x' => $clamp($shape['x'] ?? 0, $map['w'] - $width),
+                        'y' => $clamp($shape['y'] ?? 0, $map['h'] - $height),
+                        'w' => $width,
+                        'h' => $height,
+                        'label' => mb_substr($label, 0, self::MAP_MAX_LABEL_LENGTH)
+                    ];
+                }
+            }
+
+            if ((isset($data['pins'])) && (is_array($data['pins']))) {
+                $plants = [];
+                foreach (PlantsModel::raw('SELECT id FROM `@THIS` WHERE location = ? AND history = 0', [$id]) as $plant) {
+                    $plants[] = (int)$plant->get('id');
+                }
+
+                $placed = [];
+                foreach ($data['pins'] as $pin) {
+                    if ((!is_array($pin)) || (!isset($pin['plant'])) || (!is_numeric($pin['plant']))) {
+                        continue;
+                    }
+
+                    $plant = (int)$pin['plant'];
+                    if ((!in_array($plant, $plants, true)) || (in_array($plant, $placed, true))) {
+                        continue;
+                    }
+
+                    $placed[] = $plant;
+
+                    $map['pins'][] = [
+                        'plant' => $plant,
+                        'x' => $clamp($pin['x'] ?? 0, $map['w']),
+                        'y' => $clamp($pin['y'] ?? 0, $map['h'])
+                    ];
+                }
+            }
+
+            return $map;
+        } catch (\Exception $e) {
+            throw $e;
+        }
+    }
+
+    /**
+     * @param $id
+     * @return string
+     * @throws \Exception
+     */
+    public static function setMapBackground($id)
+    {
+        try {
+            if ((!isset($_FILES['background'])) || ($_FILES['background']['error'] !== UPLOAD_ERR_OK)) {
+                throw new \Exception('No image provided');
+            }
+
+            $file_ext = UtilsModule::getImageExt($_FILES['background']['tmp_name']);
+
+            if ($file_ext === null) {
+                throw new \Exception('File is not a valid image');
+            }
+
+            static::clearMapBackground($id);
+
+            $map = static::getMap($id);
+
+            $file_name = md5(random_bytes(55) . date('Y-m-d H:i:s')) . '.' . $file_ext;
+
+            move_uploaded_file($_FILES['background']['tmp_name'], public_path('/img/' . $file_name));
+
+            $map['bg'] = $file_name;
+
+            static::raw('UPDATE `@THIS` SET map_data = ? WHERE id = ?', [json_encode($map), $id]);
+
+            return $file_name;
+        } catch (\Exception $e) {
+            throw $e;
+        }
+    }
+
+    /**
+     * @param $id
+     * @return void
+     * @throws \Exception
+     */
+    public static function clearMapBackground($id)
+    {
+        try {
+            $map = static::getMap($id);
+
+            if ($map['bg'] !== null) {
+                if (file_exists(public_path('/img/' . $map['bg']))) {
+                    unlink(public_path('/img/' . $map['bg']));
+                }
+
+                $map['bg'] = null;
+
+                static::raw('UPDATE `@THIS` SET map_data = ? WHERE id = ?', [json_encode($map), $id]);
+            }
         } catch (\Exception $e) {
             throw $e;
         }
