@@ -1,3 +1,4 @@
 /app/migrations/migrations.list
 /app/migrations/verhist.json
 .env
+/backups
