@@ -772,8 +772,8 @@ class AdminController extends BaseController {
 			$smtp_encryption = $request->params()->query('smtp_encryption', app('smtp_encryption'));
 			$mail_rp_address = $request->params()->query('mail_rp_address', app('mail_rp_address'));
 
-			if ((is_string($mail_rp_address)) && (strlen($mail_rp_address) > 1) && (substr($mail_rp_address, strlen($mail_rp_address) - 1) === '/')) {
-				$mail_rp_address = substr($mail_rp_address, 0, strlen($$mail_rp_address) - 1);
+			if (is_string($mail_rp_address)) {
+				$mail_rp_address = rtrim(trim($mail_rp_address), '/');
 			}
 			
 			$set = [
