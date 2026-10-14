@@ -208,6 +208,7 @@ class PlantsController extends BaseController {
 					'unplaced_count' => __('app.map_unplaced_count'),
 					'remove_pin' => __('app.map_remove_pin'),
 					'edit_hint' => __('app.map_edit_hint'),
+					'selected_count' => __('app.map_selected_count'),
 					'unsaved' => __('app.map_unsaved'),
 					'failed' => __('app.map_failed')
 				]

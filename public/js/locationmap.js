@@ -33,7 +33,7 @@
     let editing = false;
     let dirty = false;
     let busy = false;
-    let selection = null;
+    let selection = [];
     let highlight = null;
     let drag = null;
 
@@ -92,6 +92,14 @@
 
     function pinOf(id) {
         return map.pins.find(function(pin) { return pin.plant === id; }) || null;
+    }
+
+    function isShape(item) {
+        return map.shapes.indexOf(item) !== -1;
+    }
+
+    function isSelected(item) {
+        return selection.indexOf(item) !== -1;
     }
 
     function unplacedPlants() {
@@ -244,39 +252,42 @@
     function renderSelectionBar() {
         selectionBar.textContent = '';
 
-        if ((selection) && (selection.kind === 'shape')) {
-            const shape = map.shapes[selection.index];
+        const item = (selection.length === 1) ? selection[0] : null;
 
+        if ((item) && (isShape(item))) {
             const type = html('select', { onchange: function() {
-                shape.type = this.value;
+                item.type = this.value;
                 setDirty();
                 renderStage();
             } });
 
             Object.keys(TYPES).forEach(function(name) {
-                type.appendChild(html('option', { value: name, text: labels['type_' + name], selected: name === shape.type }));
+                type.appendChild(html('option', { value: name, text: labels['type_' + name], selected: name === item.type }));
             });
 
-            const round = html('input', { type: 'checkbox', checked: shape.round, onchange: function() {
-                shape.round = this.checked;
+            const round = html('input', { type: 'checkbox', checked: item.round, onchange: function() {
+                item.round = this.checked;
                 setDirty();
                 renderStage();
             } });
 
-            selectionBar.appendChild(html('input', { type: 'text', class: 'input is-small location-map-label-input', maxlength: 60, placeholder: labels.label, value: shape.label, oninput: function() {
-                shape.label = this.value;
+            selectionBar.appendChild(html('input', { type: 'text', class: 'input is-small location-map-label-input', maxlength: 60, placeholder: labels.label, value: item.label, oninput: function() {
+                item.label = this.value;
                 setDirty();
-                positionShape(selection.index);
+                positionShape(map.shapes.indexOf(item));
             } }));
             selectionBar.appendChild(html('div', { class: 'select is-small' }, [type]));
             selectionBar.appendChild(html('label', { class: 'checkbox' }, [round, html('span', { text: ' ' + labels.round })]));
             selectionBar.appendChild(html('a', { class: 'button is-small', href: 'javascript:void(0);', text: labels.to_back, onclick: sendSelectedToBack }));
             selectionBar.appendChild(html('a', { class: 'button is-small is-danger', href: 'javascript:void(0);', text: labels.remove, onclick: removeSelected }));
-        } else if ((selection) && (selection.kind === 'pin')) {
-            const plant = plantById(selection.plant);
+        } else if (item) {
+            const plant = plantById(item.plant);
 
             selectionBar.appendChild(html('strong', { text: (plant) ? plant.name : '' }));
             selectionBar.appendChild(html('a', { class: 'button is-small is-danger', href: 'javascript:void(0);', text: labels.remove_pin, onclick: removeSelected }));
+        } else if (selection.length > 1) {
+            selectionBar.appendChild(html('strong', { text: labels.selected_count.replace('{count}', selection.length) }));
+            selectionBar.appendChild(html('a', { class: 'button is-small is-danger', href: 'javascript:void(0);', text: labels.remove, onclick: removeSelected }));
         } else {
             selectionBar.appendChild(html('span', { class: 'location-map-hint', text: labels.edit_hint }));
         }
@@ -331,15 +342,14 @@
         }
 
         map.shapes.forEach(function(shape, index) {
-            const selected = (editing) && (selection) && (selection.kind === 'shape') && (selection.index === index);
-            const group = svgElem('g', { class: 'location-map-shape location-map-shape-' + shape.type + (selected ? ' is-selected' : '') + (map.bg_url ? ' is-translucent' : ''), 'data-kind': 'shape', 'data-index': index });
+            const group = svgElem('g', { class: 'location-map-shape location-map-shape-' + shape.type + (map.bg_url ? ' is-translucent' : ''), 'data-kind': 'shape', 'data-index': index });
 
             group.appendChild(svgElem('rect', { class: 'location-map-shape-body' }));
             group.appendChild(svgElem('text', { class: 'location-map-shape-label', 'text-anchor': 'middle', 'dominant-baseline': 'central' }));
 
             svg.appendChild(group);
             shapeElems[index] = group;
-            decorateShape(index, selected);
+            decorateShape(index);
         });
 
         map.pins.forEach(function(pin) {
@@ -348,7 +358,7 @@
                 return;
             }
 
-            const selected = (editing) && (selection) && (selection.kind === 'pin') && (selection.plant === pin.plant);
+            const selected = (editing) && (isSelected(pin));
             const group = svgElem('g', { class: 'location-map-pin' + (selected ? ' is-selected' : '') + ((highlight === pin.plant) ? ' is-highlighted' : ''), 'data-kind': 'pin', 'data-plant': pin.plant });
 
             const title = svgElem('title');
@@ -376,8 +386,9 @@
         });
     }
 
-    function decorateShape(index, selected) {
+    function decorateShape(index) {
         const group = shapeElems[index];
+        const selected = (editing) && (isSelected(map.shapes[index]));
 
         group.classList.toggle('is-selected', selected);
 
@@ -388,9 +399,12 @@
         if (selected) {
             group.appendChild(svgElem('rect', { class: 'location-map-shape-outline' }));
 
-            ['nw', 'ne', 'sw', 'se'].forEach(function(corner) {
-                group.appendChild(svgElem('circle', { class: 'location-map-handle location-map-handle-' + corner, r: HANDLE_RADIUS, 'data-kind': 'handle', 'data-corner': corner }));
-            });
+            // Resizing is only offered while a single area is selected
+            if (selection.length === 1) {
+                ['nw', 'ne', 'sw', 'se'].forEach(function(corner) {
+                    group.appendChild(svgElem('circle', { class: 'location-map-handle location-map-handle-' + corner, r: HANDLE_RADIUS, 'data-kind': 'handle', 'data-corner': corner }));
+                });
+            }
         }
 
         positionShape(index);
@@ -436,8 +450,10 @@
 
             Object.keys(corners).forEach(function(corner) {
                 const handle = group.querySelector('.location-map-handle-' + corner);
-                handle.setAttribute('cx', corners[corner][0]);
-                handle.setAttribute('cy', corners[corner][1]);
+                if (handle) {
+                    handle.setAttribute('cx', corners[corner][0]);
+                    handle.setAttribute('cy', corners[corner][1]);
+                }
             });
         }
     }
@@ -452,7 +468,7 @@
 
     function startEditing() {
         editing = true;
-        selection = null;
+        selection = [];
         highlight = null;
         render();
     }
@@ -465,7 +481,7 @@
         map = clone(saved);
         editing = false;
         dirty = false;
-        selection = null;
+        selection = [];
         render();
     }
 
@@ -483,7 +499,7 @@
                 map = clone(saved);
                 editing = false;
                 dirty = false;
-                selection = null;
+                selection = [];
             })
             .catch(function(error) {
                 alert(labels.failed + ': ' + error.message);
@@ -549,7 +565,7 @@
             label: labels['type_' + type] + ' ' + (count + 1)
         });
 
-        selection = { kind: 'shape', index: map.shapes.length - 1 };
+        selection = [map.shapes[map.shapes.length - 1]];
         setDirty();
         render();
     }
@@ -563,8 +579,8 @@
         let cx = map.w / 2;
         let cy = map.h / 2;
 
-        if ((selection) && (selection.kind === 'shape')) {
-            const shape = map.shapes[selection.index];
+        if ((selection.length === 1) && (isShape(selection[0]))) {
+            const shape = selection[0];
             cx = shape.x + shape.w / 2;
             cy = shape.y + shape.h / 2;
         }
@@ -591,55 +607,100 @@
 
         map.pins.push({ plant: id, x: Math.round(x), y: Math.round(y) });
 
-        selection = { kind: 'pin', plant: id };
+        selection = [pinOf(id)];
         setDirty();
         render();
     }
 
     function removeSelected() {
-        if (!selection) {
+        if (selection.length === 0) {
             return;
         }
 
-        if (selection.kind === 'shape') {
-            map.shapes.splice(selection.index, 1);
-        } else {
-            map.pins = map.pins.filter(function(pin) { return pin.plant !== selection.plant; });
-        }
+        map.shapes = map.shapes.filter(function(shape) { return !isSelected(shape); });
+        map.pins = map.pins.filter(function(pin) { return !isSelected(pin); });
 
-        selection = null;
+        selection = [];
         setDirty();
         render();
     }
 
     function sendSelectedToBack() {
-        const shape = map.shapes.splice(selection.index, 1)[0];
+        const shape = selection[0];
+
+        map.shapes.splice(map.shapes.indexOf(shape), 1);
         map.shapes.unshift(shape);
 
-        selection = { kind: 'shape', index: 0 };
         setDirty();
         render();
     }
 
-    function select(target) {
-        const same = (selection) && (target) && (selection.kind === target.kind) && (selection.index === target.index) && (selection.plant === target.plant);
-        if ((same) || ((!selection) && (!target))) {
+    function setSelection(items) {
+        const same = (items.length === selection.length) && (items.every(isSelected));
+        if (same) {
             return;
         }
 
-        selection = target;
+        selection = items;
 
         // Update in place: rebuilding the stage would remove the element under the
         // finger, which makes the browser cancel the touch that is about to drag it
         map.shapes.forEach(function(shape, index) {
-            decorateShape(index, (selection !== null) && (selection.kind === 'shape') && (selection.index === index));
+            decorateShape(index);
         });
 
-        Object.keys(pinElems).forEach(function(plant) {
-            pinElems[plant].classList.toggle('is-selected', (selection !== null) && (selection.kind === 'pin') && (selection.plant === parseInt(plant)));
+        map.pins.forEach(function(pin) {
+            if (pinElems[pin.plant]) {
+                pinElems[pin.plant].classList.toggle('is-selected', isSelected(pin));
+            }
         });
 
         renderSelectionBar();
+    }
+
+    /**
+     * Move items by the same distance, stopping all of them as soon as one reaches the edge
+     */
+    function moveItems(items, origins, dx, dy) {
+        // Areas stay aligned to the grid, and plants moved along with them keep their offset
+        if (items.some(isShape)) {
+            dx = snap(dx);
+            dy = snap(dy);
+        }
+
+        let minX = -Infinity;
+        let maxX = Infinity;
+        let minY = -Infinity;
+        let maxY = Infinity;
+
+        origins.forEach(function(origin, index) {
+            if (isShape(items[index])) {
+                minX = Math.max(minX, -origin.x);
+                maxX = Math.min(maxX, map.w - origin.w - origin.x);
+                minY = Math.max(minY, -origin.y);
+                maxY = Math.min(maxY, map.h - origin.h - origin.y);
+            } else {
+                // Keep the whole pin and its name inside the map
+                minX = Math.max(minX, PIN_RADIUS - origin.x);
+                maxX = Math.min(maxX, map.w - PIN_RADIUS - origin.x);
+                minY = Math.max(minY, PIN_RADIUS - origin.y);
+                maxY = Math.min(maxY, map.h - PIN_RADIUS - LABEL_SPACE - origin.y);
+            }
+        });
+
+        dx = clamp(dx, minX, maxX);
+        dy = clamp(dy, minY, maxY);
+
+        items.forEach(function(item, index) {
+            item.x = Math.round(origins[index].x + dx);
+            item.y = Math.round(origins[index].y + dy);
+
+            if (isShape(item)) {
+                positionShape(map.shapes.indexOf(item));
+            } else {
+                positionPin(item);
+            }
+        });
     }
 
     /* Dragging */
@@ -658,29 +719,40 @@
         }
 
         const target = event.target.closest('[data-kind]');
-
-        if (!target) {
-            select(null);
-            return;
-        }
-
-        const kind = target.getAttribute('data-kind');
+        const kind = (target) ? target.getAttribute('data-kind') : null;
+        const additive = event.shiftKey || event.ctrlKey || event.metaKey;
         const start = pointerPosition(event);
 
-        if (kind === 'pin') {
-            const plant = parseInt(target.getAttribute('data-plant'));
+        if (!target) {
+            if (!additive) {
+                setSelection([]);
+            }
 
-            select({ kind: 'pin', plant: plant });
-            drag = { kind: 'pin', item: pinOf(plant), start: start, origin: clone(pinOf(plant)) };
+            // Touch keeps dragging the ground for scrolling the map
+            if (event.pointerType === 'touch') {
+                return;
+            }
+
+            drag = { kind: 'marquee', start: start, base: selection.slice(), box: svgElem('rect', { class: 'location-map-marquee' }) };
+            svg.appendChild(drag.box);
         } else if (kind === 'handle') {
-            const shape = map.shapes[selection.index];
-
-            drag = { kind: 'resize', corner: target.getAttribute('data-corner'), item: shape, start: start, origin: clone(shape) };
+            drag = { kind: 'resize', corner: target.getAttribute('data-corner'), item: selection[0], start: start, origin: clone(selection[0]) };
         } else {
-            const index = parseInt(target.getAttribute('data-index'));
+            const item = (kind === 'pin') ? pinOf(parseInt(target.getAttribute('data-plant'))) : map.shapes[parseInt(target.getAttribute('data-index'))];
+            const wasSelected = isSelected(item);
 
-            select({ kind: 'shape', index: index });
-            drag = { kind: 'shape', item: map.shapes[index], start: start, origin: clone(map.shapes[index]) };
+            if (additive) {
+                // Adds or removes the item on release. Dragging instead draws a selection box,
+                // which is the only way to start one where an area covers the ground.
+                drag = { kind: 'toggle', start: start, item: item };
+            } else {
+                if (!wasSelected) {
+                    setSelection([item]);
+                }
+
+                // A plain click on one of several selected items reduces the selection to it, unless it turns into a drag
+                drag = { kind: 'move', start: start, items: selection.slice(), origins: selection.map(clone), single: ((wasSelected) && (selection.length > 1)) ? item : null };
+            }
         }
 
         svg.setPointerCapture(event.pointerId);
@@ -695,21 +767,43 @@
         const position = pointerPosition(event);
         const dx = position.x - drag.start.x;
         const dy = position.y - drag.start.y;
-        const item = drag.item;
-        const origin = drag.origin;
 
-        if (drag.kind === 'pin') {
-            // Keep the whole pin and its name inside the map
-            item.x = Math.round(clamp(origin.x + dx, PIN_RADIUS, map.w - PIN_RADIUS));
-            item.y = Math.round(clamp(origin.y + dy, PIN_RADIUS, map.h - PIN_RADIUS - LABEL_SPACE));
+        if ((drag.kind === 'toggle') && (Math.hypot(dx, dy) > GRID)) {
+            drag = { kind: 'marquee', start: drag.start, base: selection.slice(), box: svgElem('rect', { class: 'location-map-marquee' }) };
+            svg.appendChild(drag.box);
+        }
 
-            positionPin(item);
-        } else if (drag.kind === 'shape') {
-            item.x = clamp(snap(origin.x + dx), 0, map.w - item.w);
-            item.y = clamp(snap(origin.y + dy), 0, map.h - item.h);
+        if (drag.kind === 'toggle') {
+            return;
+        }
 
-            positionShape(selection.index);
+        if (drag.kind === 'marquee') {
+            const left = clamp(Math.min(drag.start.x, position.x), 0, map.w);
+            const right = clamp(Math.max(drag.start.x, position.x), 0, map.w);
+            const top = clamp(Math.min(drag.start.y, position.y), 0, map.h);
+            const bottom = clamp(Math.max(drag.start.y, position.y), 0, map.h);
+
+            drag.box.setAttribute('x', left);
+            drag.box.setAttribute('y', top);
+            drag.box.setAttribute('width', right - left);
+            drag.box.setAttribute('height', bottom - top);
+
+            // Areas have to be enclosed completely, so that selecting plants does not pick up the bed they stand in
+            const hits = map.shapes.filter(function(shape) {
+                return (shape.x >= left) && (shape.x + shape.w <= right) && (shape.y >= top) && (shape.y + shape.h <= bottom);
+            }).concat(map.pins.filter(function(pin) {
+                return (pin.x + PIN_RADIUS > left) && (pin.x - PIN_RADIUS < right) && (pin.y + PIN_RADIUS > top) && (pin.y - PIN_RADIUS < bottom);
+            }));
+
+            setSelection(drag.base.concat(hits.filter(function(item) { return drag.base.indexOf(item) === -1; })));
+        } else if (drag.kind === 'move') {
+            moveItems(drag.items, drag.origins, dx, dy);
+
+            drag.moved = true;
         } else {
+            const item = drag.item;
+            const origin = drag.origin;
+
             let left = origin.x;
             let top = origin.y;
             let right = origin.x + origin.w;
@@ -732,10 +826,10 @@
             item.w = right - left;
             item.h = bottom - top;
 
-            positionShape(selection.index);
-        }
+            positionShape(map.shapes.indexOf(item));
 
-        drag.moved = true;
+            drag.moved = true;
+        }
     }
 
     function onPointerUp(event) {
@@ -743,11 +837,18 @@
             return;
         }
 
-        if (drag.moved) {
-            setDirty();
-        }
-
+        const finished = drag;
         drag = null;
+
+        if (finished.kind === 'marquee') {
+            finished.box.remove();
+        } else if (finished.kind === 'toggle') {
+            setSelection((isSelected(finished.item)) ? selection.filter(function(other) { return other !== finished.item; }) : selection.concat([finished.item]));
+        } else if (finished.moved) {
+            setDirty();
+        } else if (finished.single) {
+            setSelection([finished.single]);
+        }
 
         if (svg.hasPointerCapture(event.pointerId)) {
             svg.releasePointerCapture(event.pointerId);
@@ -806,8 +907,20 @@
         document.addEventListener('keydown', function(event) {
             const typing = ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(event.target.tagName) !== -1;
 
-            if ((editing) && (selection) && (!typing) && (event.key === 'Delete')) {
+            const steps = { ArrowLeft: [-GRID, 0], ArrowRight: [GRID, 0], ArrowUp: [0, -GRID], ArrowDown: [0, GRID] };
+
+            if ((!editing) || (typing) || (selection.length === 0)) {
+                return;
+            }
+
+            if (event.key === 'Delete') {
                 removeSelected();
+            } else if (event.key === 'Escape') {
+                setSelection([]);
+            } else if (steps[event.key]) {
+                moveItems(selection, selection.map(clone), steps[event.key][0], steps[event.key][1]);
+                setDirty();
+                event.preventDefault();
             }
         });
     }

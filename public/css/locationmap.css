@@ -152,6 +152,14 @@
     pointer-events: none;
 }
 
+.location-map-marquee {
+    fill: rgba(30, 111, 217, 0.12);
+    stroke: #1e6fd9;
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    pointer-events: none;
+}
+
 .location-map-handle {
     fill: #ffffff;
     stroke: #1e6fd9;

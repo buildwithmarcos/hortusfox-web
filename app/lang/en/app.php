@@ -537,7 +537,8 @@ return [
 	'map_unplaced_hint' => 'Tap a plant to put it on the map, then drag it into place.',
 	'map_unplaced_count' => '{count} plant(s) not on the map yet',
 	'map_remove_pin' => 'Take off the map',
-	'map_edit_hint' => 'Drag areas and plants to move them. Drag a corner to resize an area.',
+	'map_edit_hint' => 'Drag areas and plants to move them. Drag a corner to resize an area. To move several at once, drag a box around them or hold Shift and click each one. Hold Shift to start the box on top of an area.',
+	'map_selected_count' => '{count} items selected',
 	'map_unsaved' => 'You have unsaved changes to the map. Discard them?',
 	'map_failed' => 'The map could not be saved',
 	'map_show_on_map' => 'Show on map'
