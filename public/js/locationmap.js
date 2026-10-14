@@ -36,6 +36,9 @@
     let selection = [];
     let highlight = null;
     let drag = null;
+    let twoFingers = false;
+    let pressing = false;
+    let barStale = false;
 
     let svg = null;
     let shapeElems = [];
@@ -187,12 +190,10 @@
             svg.addEventListener('pointerup', onPointerUp);
             svg.addEventListener('pointercancel', onPointerUp);
 
-            // Keep the browser from scrolling the page while an area or plant is being dragged
-            svg.addEventListener('touchstart', function(event) {
-                if (event.target.closest('[data-kind]')) {
-                    event.preventDefault();
-                }
-            }, { passive: false });
+            svg.addEventListener('touchstart', onTouchStart, { passive: false });
+            svg.addEventListener('touchmove', onTouchMove, { passive: false });
+            svg.addEventListener('touchend', onTouchEnd);
+            svg.addEventListener('touchcancel', onTouchEnd);
         }
 
         root.appendChild(html('div', { class: 'location-map-stage' }, [svg]));
@@ -250,6 +251,7 @@
     }
 
     function renderSelectionBar() {
+        barStale = false;
         selectionBar.textContent = '';
 
         const item = (selection.length === 1) ? selection[0] : null;
@@ -655,7 +657,18 @@
             }
         });
 
-        renderSelectionBar();
+        // The bar changes its height with the selection, which would shift the map under the pointer
+        if ((pressing) || (drag)) {
+            barStale = true;
+        } else {
+            renderSelectionBar();
+        }
+    }
+
+    function flushSelectionBar() {
+        if ((barStale) && (!drag)) {
+            renderSelectionBar();
+        }
     }
 
     /**
@@ -713,11 +726,71 @@
         return point.matrixTransform(svg.getScreenCTM().inverse());
     }
 
+    function startMarquee(start, base) {
+        drag = { kind: 'marquee', start: start, base: base, box: svgElem('rect', { class: 'location-map-marquee' }) };
+        svg.appendChild(drag.box);
+    }
+
+    function updateMarquee(position) {
+        const left = clamp(Math.min(drag.start.x, position.x), 0, map.w);
+        const right = clamp(Math.max(drag.start.x, position.x), 0, map.w);
+        const top = clamp(Math.min(drag.start.y, position.y), 0, map.h);
+        const bottom = clamp(Math.max(drag.start.y, position.y), 0, map.h);
+
+        drag.box.setAttribute('x', left);
+        drag.box.setAttribute('y', top);
+        drag.box.setAttribute('width', right - left);
+        drag.box.setAttribute('height', bottom - top);
+
+        // Areas have to be enclosed completely, so that selecting plants does not pick up the bed they stand in
+        const hits = map.shapes.filter(function(shape) {
+            return (shape.x >= left) && (shape.x + shape.w <= right) && (shape.y >= top) && (shape.y + shape.h <= bottom);
+        }).concat(map.pins.filter(function(pin) {
+            return (pin.x + PIN_RADIUS > left) && (pin.x - PIN_RADIUS < right) && (pin.y + PIN_RADIUS > top) && (pin.y - PIN_RADIUS < bottom);
+        }));
+
+        setSelection(drag.base.concat(hits.filter(function(item) { return drag.base.indexOf(item) === -1; })));
+    }
+
+    /**
+     * Drop the running drag and put back whatever it has changed so far
+     */
+    function cancelDrag() {
+        if (!drag) {
+            return;
+        }
+
+        const cancelled = drag;
+        drag = null;
+
+        if (cancelled.kind === 'marquee') {
+            cancelled.box.remove();
+        } else if ((cancelled.kind === 'move') && (cancelled.moved)) {
+            moveItems(cancelled.items, cancelled.origins, 0, 0);
+        } else if ((cancelled.kind === 'resize') && (cancelled.moved)) {
+            Object.assign(cancelled.item, cancelled.origin);
+            positionShape(map.shapes.indexOf(cancelled.item));
+        }
+    }
+
     function onPointerDown(event) {
         if ((event.button !== undefined) && (event.button > 0)) {
             return;
         }
 
+        // Further fingers belong to the two finger selection box
+        if ((twoFingers) || ((event.pointerType === 'touch') && (!event.isPrimary))) {
+            return;
+        }
+
+        pressing = true;
+        beginDrag(event);
+        pressing = false;
+
+        flushSelectionBar();
+    }
+
+    function beginDrag(event) {
         const target = event.target.closest('[data-kind]');
         const kind = (target) ? target.getAttribute('data-kind') : null;
         const additive = event.shiftKey || event.ctrlKey || event.metaKey;
@@ -733,8 +806,7 @@
                 return;
             }
 
-            drag = { kind: 'marquee', start: start, base: selection.slice(), box: svgElem('rect', { class: 'location-map-marquee' }) };
-            svg.appendChild(drag.box);
+            startMarquee(start, selection.slice());
         } else if (kind === 'handle') {
             drag = { kind: 'resize', corner: target.getAttribute('data-corner'), item: selection[0], start: start, origin: clone(selection[0]) };
         } else {
@@ -760,7 +832,7 @@
     }
 
     function onPointerMove(event) {
-        if (!drag) {
+        if ((!drag) || (drag.touch)) {
             return;
         }
 
@@ -769,8 +841,7 @@
         const dy = position.y - drag.start.y;
 
         if ((drag.kind === 'toggle') && (Math.hypot(dx, dy) > GRID)) {
-            drag = { kind: 'marquee', start: drag.start, base: selection.slice(), box: svgElem('rect', { class: 'location-map-marquee' }) };
-            svg.appendChild(drag.box);
+            startMarquee(drag.start, selection.slice());
         }
 
         if (drag.kind === 'toggle') {
@@ -778,24 +849,7 @@
         }
 
         if (drag.kind === 'marquee') {
-            const left = clamp(Math.min(drag.start.x, position.x), 0, map.w);
-            const right = clamp(Math.max(drag.start.x, position.x), 0, map.w);
-            const top = clamp(Math.min(drag.start.y, position.y), 0, map.h);
-            const bottom = clamp(Math.max(drag.start.y, position.y), 0, map.h);
-
-            drag.box.setAttribute('x', left);
-            drag.box.setAttribute('y', top);
-            drag.box.setAttribute('width', right - left);
-            drag.box.setAttribute('height', bottom - top);
-
-            // Areas have to be enclosed completely, so that selecting plants does not pick up the bed they stand in
-            const hits = map.shapes.filter(function(shape) {
-                return (shape.x >= left) && (shape.x + shape.w <= right) && (shape.y >= top) && (shape.y + shape.h <= bottom);
-            }).concat(map.pins.filter(function(pin) {
-                return (pin.x + PIN_RADIUS > left) && (pin.x - PIN_RADIUS < right) && (pin.y + PIN_RADIUS > top) && (pin.y - PIN_RADIUS < bottom);
-            }));
-
-            setSelection(drag.base.concat(hits.filter(function(item) { return drag.base.indexOf(item) === -1; })));
+            updateMarquee(position);
         } else if (drag.kind === 'move') {
             moveItems(drag.items, drag.origins, dx, dy);
 
@@ -833,7 +887,7 @@
     }
 
     function onPointerUp(event) {
-        if (!drag) {
+        if ((!drag) || (drag.touch)) {
             return;
         }
 
@@ -852,6 +906,67 @@
 
         if (svg.hasPointerCapture(event.pointerId)) {
             svg.releasePointerCapture(event.pointerId);
+        }
+
+        flushSelectionBar();
+    }
+
+    /* Two finger selection box on touchscreens, where one finger on the ground scrolls the map */
+
+    function touchPosition(event) {
+        return pointerPosition({
+            clientX: (event.touches[0].clientX + event.touches[1].clientX) / 2,
+            clientY: (event.touches[0].clientY + event.touches[1].clientY) / 2
+        });
+    }
+
+    function onTouchStart(event) {
+        if (event.touches.length === 2) {
+            // The first finger may already have picked up an item
+            cancelDrag();
+
+            twoFingers = true;
+            startMarquee(touchPosition(event), []);
+            drag.touch = true;
+
+            setSelection([]);
+        } else if (twoFingers) {
+            cancelDrag();
+        }
+
+        // Keep the browser from scrolling or zooming the page while dragging
+        if (((twoFingers) || (event.target.closest('[data-kind]'))) && (event.cancelable)) {
+            event.preventDefault();
+        }
+    }
+
+    function onTouchMove(event) {
+        if (!twoFingers) {
+            return;
+        }
+
+        if (event.cancelable) {
+            event.preventDefault();
+        }
+
+        if ((drag) && (drag.touch) && (event.touches.length === 2)) {
+            updateMarquee(touchPosition(event));
+        }
+    }
+
+    function onTouchEnd(event) {
+        if (!twoFingers) {
+            return;
+        }
+
+        if (event.touches.length < 2) {
+            cancelDrag();
+            flushSelectionBar();
+        }
+
+        // The finger that is still down must not start scrolling or dragging
+        if (event.touches.length === 0) {
+            twoFingers = false;
         }
     }
 

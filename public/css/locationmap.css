@@ -235,6 +235,11 @@
     touch-action: none;
 }
 
+/* Two fingers draw a selection box instead of zooming the page */
+.location-map.is-editing .location-map-svg {
+    touch-action: pan-x pan-y;
+}
+
 .location-map-tray {
     margin-top: 12px;
 }
